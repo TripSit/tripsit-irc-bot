@@ -22,21 +22,51 @@ def say_hi(bot, trigger):
 
 
 def resolve_command(bot, arg):
-    def cmdv(reason):
-        ret = ''
 
-        time = [resolve_time(t) for t in reason if resolve_time(t)]
-        reason = [r for r in reason if not resolve_time(r)]
-        ret += f'a duration of {time[0]}' if len(time) > 0 else 'indefinitely'
-        if len(reason) == 0:
-            return ret
+    def resolve_variant(var):
+        match list(var):
+            case ['#', *rem] if (''.join(rem)).lower() in ['kline', 'glo', 'underban', 'shadow']:
+                return 'penalty_variant', \
+                    dict({'kline': '$KLINE',
+                          'glo': '$GLOBAL',
+                          'underban': '$UNDER',
+                          'shadow': '$SHADOW'})[(''.join(rem)).lower()]
+            case ['#', *rem]:
+                name = f"#{''.join(rem)}"
+                return ('channel', name) if bot.channels[name] is not None else ('error', 'unknown channel')
+            case (*nums, ('m' | 'h' | 'd') | ('minutes' | 'hours' | 'days') as timev) if ''.join(nums).isdigit():
+                return 'time', {
+                    'amount': int(''.join(nums)),
+                    'unit': dict({"m": "minutes", "h": "hours", "d": "days"})[timev]
+                }
+            case anything:
+                return 'description', ''.join(anything)
 
-        variant = [resolve_variant(v) for v in reason if resolve_variant(v)]
-        reason = [r for r in reason if not resolve_variant(r)]
-        ret += f' for {" ".join(reason)}' if len(reason) > 0 else ''
+    def cmdv(args):
+        # directives = {k: v for k, v in map(resolve_variant, args)}
+        directives = list(map(resolve_variant, args))
 
-        ret += f' :: {variant[0]}' if len(variant) > 0 else ''
-        return ret
+        for k, v in directives:
+            bot.say(f'{k}: {v}')
+
+        return directives
+        # ret = ''
+
+        # time = [resolve_time(t) for t in reason if resolve_time(t)]
+        # reason = [r for r in reason if not resolve_time(r)]
+        # ret += f'a duration of {time[0]}' if len(time) > 0 else 'indefinitely'
+        # if len(reason) == 0:
+        #     return ret
+
+        # variant = [resolve_variant(v) for v in reason if resolve_variant(v)]
+        # reason = [r for r in reason if not resolve_variant(r)]
+        # ret += f' for {" ".join(reason)}' if len(reason) > 0 else ''
+
+        # ret += f' :: {variant[0]}' if len(variant) > 0 else ''
+
+        # return ret
+
+        pass
 
     match arg.split():
         case [('.mute' | '.cban' | '.nban') as fate, *values]:
@@ -57,26 +87,6 @@ def resolve_command(bot, arg):
             elif len(channels) == 2:
                 bot.write(('KICK', f'{channels[0]} {user}'))
                 bot.write(('SAJOIN', f'{user} {channels[1]}'))
-
-
-def resolve_variant(var):
-    match list(var):
-        case ['#', *rem] if (''.join(rem)).lower() in ['kline', 'glo', 'underban', 'shadow']:
-            return dict({'kline': '$KLINE',
-                         'glo': '$GLOBAL',
-                         'underban': '$UNDER',
-                         'shadow': '$SHADOW'})[(''.join(rem)).lower()]
-        case _:
-            return None
-
-
-def resolve_time(cand):
-    print(cand)
-    match list(cand):
-        case (*nums, ('m' | 'h' | 'd') | ('minutes' | 'hours' | 'days') as timev) if ''.join(nums).isdigit():
-            return f'{"".join(nums)} {dict({"m":"minutes", "h":"hours","d":"days"})[timev]}'
-        case _:
-            return None
 
 
 def subvariant(f):
