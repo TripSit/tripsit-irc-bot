@@ -1,12 +1,12 @@
-"""
-Eric's first sopel module =3
-"""
 # System stuff
 import sys
 # The star of the show!
 import discord
 # This allows us to define the bot's commands
 from discord.ext import commands
+# Fr slash commands
+from discord_slash import SlashCommand, SlashContext
+
 # These are used to pull in the discord settings from the default.cfg file
 from sopel.config.types import (
     StaticSection, ValidatedAttribute
@@ -19,12 +19,13 @@ import asyncio
 import threading
 # This is used for logging functions
 import logging
+# For random questions
+import random
 # This is a fix for an asyncio issue on windows
 import platform
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-# For random questions
-import random
+
 
 # # This is an example command of how to run something
 # @plugin.command('dev')
@@ -58,12 +59,15 @@ prefix = "."
 # This is where we define the bot on discord
 # intents = discord.Intents.all()
 # member_cache = discord.MemberCacheFlags.all()
+
 discord_bot = commands.Bot(
     command_prefix=prefix,
     description=description,
     intents=discord.Intents.all(),
     member_cache_flags=discord.MemberCacheFlags.all()
 )
+
+slash = SlashCommand(discord_bot)
 
 # Handles log statements
 logger = logging.getLogger(__name__)
@@ -175,6 +179,80 @@ async def discord_rename(sopel_bot, user_name, new_name):
         sopel_bot.reply(f"[discord] Renamed {user_name} to {new_name}")
 
 
+@sopel_plugin.require_admin
+@sopel_plugin.command('add_role')
+def irc_add_roles(sopel_bot, trigger):
+    user_name = trigger.group(3)
+    role_name = trigger.group(4)
+    reason = trigger.group(5)
+    roles = guild.roles
+    role_id = 0
+    for role in roles:
+        if role_name == role.name:
+            role_id = role.id
+            break
+
+    if role_id == 0:
+        sopel_bot.reply(f"[discord] Role not found, try using {prefix}roles")
+
+    asyncio.run_coroutine_threadsafe(discord_add_roles(sopel_bot, user_name, role_id, reason), loop)
+
+
+async def discord_add_roles(sopel_bot, user_name, role_name, role_id, reason):
+    member_object = await MyDiscordClient.lookup_discord_member(sopel_bot, user_name)
+    if member_object:
+        logger.debug(f"[discord] Attempting to add role on {member_object}")
+        try:
+            await member_object.add_roles([role_id], reason=reason)
+        except Exception as e:
+            logger.critical(e)
+            sopel_bot.reply(e)
+        logger.info(f"[discord] Set {role_name} on {user_name}")
+        sopel_bot.reply(f"[discord] Set {role_name} on {user_name}")
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('remove_role')
+def irc_remove_roles(sopel_bot, trigger):
+    user_name = trigger.group(3)
+    role_name = trigger.group(4)
+    reason = trigger.group(5)
+    roles = guild.roles
+    role_id = 0
+    for role in roles:
+        if role_name == role.name:
+            role_id = role.id
+            break
+
+    if role_id == 0:
+        sopel_bot.reply(f"[discord] Role not found, try using {prefix}roles")
+
+    asyncio.run_coroutine_threadsafe(discord_remove_roles(sopel_bot, user_name, role_id, reason), loop)
+
+
+async def discord_remove_roles(sopel_bot, user_name, role_name, role_id, reason):
+    member_object = await MyDiscordClient.lookup_discord_member(sopel_bot, user_name)
+    if member_object:
+        logger.debug(f"[discord] Attempting to remove role on {member_object}")
+        try:
+            await member_object.add_roles([role_id], reason=reason)
+        except Exception as e:
+            logger.critical(e)
+            sopel_bot.reply(e)
+        logger.info(f"[discord] Removed {role_name} on {user_name}")
+        sopel_bot.reply(f"[discord] Removed {role_name} on {user_name}")
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('roles')
+def irc_roles(sopel_bot, trigger):
+    roles = guild.roles
+    role_output = ""
+    for role in roles:
+        role_output += f"{role.name}: {role.id}"
+    sopel_bot.reply(role_output)
+
+
 # Start most of Discord specific stuff
 class GuildSection(StaticSection):
     # This pulls information from the sopel config file
@@ -257,9 +335,9 @@ class MyDiscordClient(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    async def on_error(self, event, *args, **kwargs):
-        logger.critical(event)
-        logger.critical(sys.exc_info())
+    # async def on_error(self, event, *args, **kwargs):
+    #     logger.critical(event)
+    #     logger.critical(sys.exc_info())
 
     async def on_connect(self):
         logger.info("[discord] Connected")
@@ -293,91 +371,298 @@ class MyDiscordClient(discord.Client):
 
     async def on_raw_reaction_add(self, payload):
         '''
-        <RawReactionActionEvent 
-            message_id=int 
-            user_id=int 
-            channel_id=int 
-            guild_id=int 
-            emoji=<PartialEmoji 
-                animated=bool 
-                name='emoji' 
-                id=None> 
-            event_type='REACTION_ADD' 
-            member=<Member 
-                id=int 
-                name='str' 
-                discriminator='int' 
-                bot=False 
-                nick='str' 
-                guild=<Guild 
-                    id=int 
-                    name='str' 
-                    shard_id=None 
-                    chunked=False 
-                    member_count=int>>>
+        <RawReactionActionEvent
+            message_id=int
+            user_id=int
+            channel_id=int
+            guild_id=int
+            emoji=<PartialEmoji
+                animated=bool
+                name='emoji'
+                id=None>
+            event_type='REACTION_ADD'
+            member=<Member
+                id=int
+                name='str'
+                discriminator='int'
+                bot=False
+                nick='str'
+                guild=<Guild
+                    id=int
+                    name='str'
+                    shard_id=None
+                    chunked=False
+                    member_count=int
+                >
+            >
+        >
         '''
-        logger.info(f"{payload.name}")
+        logger.info(f"{payload.member.nick} added {payload.emoji.name} to {payload.message_id}")
 
     async def on_raw_reaction_remove(self, payload):
-        logger.info(f"{payload}")
-
-    async def on_raw_reaction_clear(self, payload):
-        logger.info(f"{payload}")
-
-    async def on_raw_reaction_clear_emoji(self, payload):
-        logger.info(f"{payload}")
+        '''
+        <RawReactionActionEvent
+            message_id=int
+            user_id=int
+            channel_id=int
+            guild_id=int
+            emoji=<PartialEmoji
+                animated=bool
+                name='emoji'
+                id=None>
+            event_type='REACTION_REMOVE'
+            member=None
+        >
+        '''
+        logger.info(f"{payload.user_id} removed {payload.emoji.name} from {payload.message_id}")
 
     async def on_raw_message_delete(self, payload):
-        logger.info(f"Message deleted: {payload}")
-
-    async def on_raw_bulk_message_delete(self, payload):
-        logger.info(f"Messages deleted: {payload}")
+        '''
+        <Message
+            id=956637760603697202
+            channel=<TextChannel
+                id=943599582921756732
+                name='sandbox'
+                position=24
+                nsfw=False
+                news=False
+                category_id=538811330774171655
+            >
+            type=<MessageType.default:
+                0
+            >
+            author=<Member
+                id=177537158419054592
+                name='MoonBear'
+                discriminator='4874'
+                bot=False
+                nick='Moonbear'
+                guild=<Guild
+                    id=179641883222474752
+                    name='TripSit'
+                    shard_id=None
+                    chunked=False
+                    member_count=995
+                >
+            >
+            flags=<MessageFlags value=0>
+        >
+        '''
+        logger.info(f"{payload.author.name} deleted: {payload.id}")
 
     async def on_raw_message_edit(self, payload):
+        '''
+        <RawMessageUpdateEvent
+            message_id=int
+            channel_id=int
+            guild_id=int
+            data={
+                'type': 0,
+                'tts': False,
+                'timestamp': 'dateTime',
+                'pinned': False,
+                'mentions': [],
+                'mention_roles': [],
+                'mention_everyone': False,
+                'member': {
+                    'roles': [
+                        'int', 'int'
+                    ],
+                    'premium_since': None,
+                    'pending': False,
+                    'nick': 'str',
+                    'mute': False,
+                    'joined_at': 'dateTime',
+                    'hoisted_role': 'int',
+                    'deaf': False,
+                    'communication_disabled_until': None,
+                    'avatar': None,
+                    'user': {
+                        'username': 'str',
+                        'id': int,
+                        'avatar': 'hash',
+                        'discriminator': 'int',
+                        'bot': bool
+                    }
+                },
+                'id': 'int',
+                'flags': 0,
+                'embeds': [],
+                'edited_timestamp': 'dateTime',
+                'content': 'str',
+                'components': [],
+                'channel_id': 'int',
+                'author': {
+                    'username': 'str',
+                    'public_flags': 0,
+                    'id': 'int',
+                    'discriminator': 'int',
+                    'avatar': 'hash'
+                },
+                'attachments': [],
+                'guild_id': 'int'
+            }
+            cached_message=<Message
+                id=int
+                channel=<TextChannel
+                    id=int
+                    name='sandbox'
+                    position=26
+                    nsfw=False
+                    news=False
+                    category_id=int
+                >
+                type=<MessageType.default:
+                    0
+                >
+                author=<Member
+                    id=int
+                    name='str'
+                    discriminator='int'
+                    bot=False
+                    nick='str'
+                    guild=<Guild
+                        id=int
+                        name='str'
+                        shard_id=None
+                        chunked=False
+                        member_count=int
+                    >
+                >
+                flags=<MessageFlags
+                    value=0
+                >
+            >
+        >
+        '''
         logger.info(f"Messages edited: {payload}")
 
     async def on_message(self, message):
+        '''
+        <Message
+            id=956988322230730802
+            channel=<TextChannel
+                id=943599582921756732
+                name='sandbox'
+                position=26
+                nsfw=False
+                news=False
+                category_id=538811330774171655
+            >
+            type=<MessageType.default:
+                0
+            >
+            author=<Member
+                id=177537158419054592
+                name='MoonBear'
+                discriminator='4874'
+                bot=False
+                nick='Moonbear'
+                guild=<Guild
+                    id=179641883222474752
+                    name='TripSit'
+                    shard_id=None
+                    chunked=False
+                    member_count=994
+                >
+            >
+            flags=<MessageFlags
+                value=0
+            >
+        >
+        '''
         # This section handles messages from Discord
         content = message.clean_content
         if message.author.bot:
             return
-        try:
-            logger.debug(f"[discord] Messsage from <{message.author.name}> in #{message.channel.name}: {content}")
-        except UnicodeEncodeError:
-            logger.debug(f"[discord] Messsage from <{message.author.name}> in #{message.channel.name}")
-        except Exception as e:
-            logger.warning(e)
+
+        logger.debug(f"[discord] Messsage from <{message.author.name}> in #{message.channel.name}: {content}")
+        logger.debug(message)
 
         can_mute = message.author.guild_permissions.manage_roles
         can_kick = message.author.guild_permissions.kick_members
         can_ban = message.author.guild_permissions.ban_members
         is_admin = message.author.guild_permissions.administrator
+        author_roles = message.author.roles
+        role_vip = False
+        role_helper = False
+        role_needshelp = False
 
-        if message.content.startswith(f'{prefix}hello'):
-            await message.channel.send('Hello!')
-        # if message.content.startswith(f'{prefix}cache'):
-        #     log = ""
-        #     for each in discord_client.cached_messages:
-        #         log = log + f"{each.author.name}: {each.clean_content}" + "\r\n"
-        #         logger.info(each)
-        #     await message.channel.send(log)
-        if message.content.startswith(f'{prefix}js'):
-            await message.channel.send('>=(')
-        if message.content.startswith(f'{prefix}welcome'):
-            await welcome_channel.send("Wecome to the TripSit discord! You'll need to talk in this channel a bit to access the rest of the network, here's a question to get you started!")
-            await welcome_channel.send(random.choice(question_list))
+        for role_obj in author_roles:
+            if role_obj.name == "VIP":
+                role_vip = True
+            if role_obj.name == "Helper":
+                role_helper = True
+            if role_obj.name == "NeedsHelp":
+                role_needshelp = True
+
         if message.content.startswith(f'{prefix}topic'):
             await message.channel.send(random.choice(question_list))
-        if message.content.startswith(f'{prefix}quiet') and can_mute:
-            await sandbox_channel.send("I would quiet someone on IRC now, but i dont know how!")
-        if message.content.startswith(f'{prefix}kick') and can_kick:
-            await sandbox_channel.send("I would kick someone on IRC now, but i dont know how!")
-        if message.content.startswith(f'{prefix}nban') and can_ban:
-            await sandbox_channel.send("I would ban someone on IRC now, but i dont know how!")
-        if message.content.startswith(f'{prefix}svsnick') and can_ban:
-            await sandbox_channel.send("I would change someone's nickname on IRC now, but i dont know how!")
+
+        if role_vip:
+            if message.content.startswith(f'{prefix}letshelp'):
+                needshelp_role = guild.get_role(955853983287754782)
+                try:
+                    user_name = content.split(" ")[1]
+                except Exception:
+                    await message.channel.send('You need to supply a user!')
+                member_object = await MyDiscordClient.lookup_discord_member(self, user_name)
+                await message.channel.send(f'I will start helping {user_name}!')
+                await member_object.add_roles(needshelp_role)
+
+            if message.content.startswith(f'{prefix}wehelped'):
+                needshelp_role = guild.get_role(955853983287754782)
+                try:
+                    user_name = content.split(" ")[1]
+                except Exception:
+                    await message.channel.send('You need to supply a user!')
+                member_object = await MyDiscordClient.lookup_discord_member(self, user_name)
+                await message.channel.send(f'I will stop helping {user_name}!')
+                await member_object.remove_roles(needshelp_role)
+
+            if message.content.startswith(f'{prefix}hello'):
+                await message.channel.send('Hello!')
+
+            if message.content.startswith(f'{prefix}js'):
+                await message.channel.send('>=(')
+
+            if message.content.startswith(f'{prefix}welcome'):
+                await welcome_channel.send("Wecome to the TripSit discord! You'll need to talk in this channel a bit to access the rest of the network, here's a question to get you started!")
+                await welcome_channel.send(random.choice(question_list))
+
+        if can_mute:
+            if message.content.startswith(f'{prefix}quiet'):
+                await sandbox_channel.send("I would quiet someone on IRC now, but i dont know how!")
+        if can_kick:
+            if message.content.startswith(f'{prefix}kick'):
+                await sandbox_channel.send("I would kick someone on IRC now, but i dont know how!")
+        if can_ban:
+            if message.content.startswith(f'{prefix}nban'):
+                await sandbox_channel.send("I would ban someone on IRC now, but i dont know how!")
+            if message.content.startswith(f'{prefix}svsnick'):
+                await sandbox_channel.send("I would change someone's nickname on IRC now, but i dont know how!")
 
         if is_admin:
+            if message.content.startswith(f'{prefix}roles'):
+                roles = guild.roles
+                role_output = ""
+                for role in roles:
+                    role_output += f"{role.name}: {role.id}\r\n"
+                logger.debug(role_output)
+                await message.channel.send(role_output)
+
+            if message.content.startswith(f'{prefix}cache'):
+                log = ""
+                for each in discord_client.cached_messages:
+                    log = log + f"{each.author.name}: {each.clean_content}" + "\r\n"
+                    logger.info(each)
+                await message.channel.send(log)
+
+            if message.content.startswith(f'{prefix}invite'):
+                my_invite = await guild.text_channels[0].create_invite()
+                print(my_invite)
+                return
+
             if message.content.startswith(f'{prefix}reload'):
                 await sandbox_channel.send("Reloading sopel plugins!")
                 logger.info("Reloading sopel plugins!")
@@ -411,20 +696,46 @@ class MyDiscordClient(discord.Client):
             logger.debug(f"[discord] Looking for the user name {user_name}")
             matching_members = await guild.query_members(query=user_name)
         logger.debug(matching_members)
+
         if not matching_members:
             logger.debug(f"[discord] Could not find {user_name} on this server!")
-            sopel_bot.reply(f"[discord] Could not find {user_name} on this server!")
+            try:
+                sopel_bot.reply(f"[discord] Could not find {user_name} on this server!")
+            except Exception:
+                pass
 
         if len(matching_members) > 1:
             logger.debug(f"[discord] Multiple results for {user_name}, pick one:")
             sopel_bot.reply(f"[discord] Multiple results for {user_name}, pick one:")
             for member in matching_members:
                 logger.debug(f"[discord] Nickname: {member.nick} | DiscordID: {member.name}#{member.discriminator} | UserID: {member.id}")
-                sopel_bot.reply(f"[discord] Nickname: {member.nick} | DiscordID: {member.name}#{member.discriminator} | UserID: {member.id}")
+                try:
+                    sopel_bot.reply(f"[discord] Nickname: {member.nick} | DiscordID: {member.name}#{member.discriminator} | UserID: {member.id}")
+                except Exception:
+                    pass
+
         if len(matching_members) == 1:
             logger.debug(f"[discord] Found a single match for {user_name}")
             member_object = matching_members[0]
             return member_object
+
+
+# @slash.slash(name="test")
+# async def test(ctx: SlashContext):
+#     embed = discord.Embed(title="Embed Test")
+#     await ctx.send(embed=embed)
+
+    # async def on_raw_bulk_message_delete(self, payload):
+    #     # Never seen this
+    #     logger.info(f"Messages deleted: {payload}")
+
+    # async def on_raw_reaction_clear(self, payload):
+    #     # Not sure ive ever seen this?
+    #     logger.info(f"{payload}")
+
+    # async def on_raw_reaction_clear_emoji(self, payload):
+    #     # Not sure ive ever seen this?
+    #     logger.info(f"{payload}")
 
     # This doesnt work, perhaps for the same reason the below functiosn dont work?
     # @discord_bot.command()
