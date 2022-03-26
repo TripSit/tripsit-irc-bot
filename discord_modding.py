@@ -1,11 +1,11 @@
 # System stuff
-import sys
+# import sys
 # The star of the show!
 import discord
 # This allows us to define the bot's commands
 from discord.ext import commands
 # Fr slash commands
-from discord_slash import SlashCommand, SlashContext
+# from discord_slash import SlashCommand, SlashContext
 
 # These are used to pull in the discord settings from the default.cfg file
 from sopel.config.types import (
@@ -67,7 +67,7 @@ discord_bot = commands.Bot(
     member_cache_flags=discord.MemberCacheFlags.all()
 )
 
-slash = SlashCommand(discord_bot)
+# slash = SlashCommand(discord_bot)
 
 # Handles log statements
 logger = logging.getLogger(__name__)
@@ -335,6 +335,7 @@ class MyDiscordClient(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    # TODO better error logging
     # async def on_error(self, event, *args, **kwargs):
     #     logger.critical(event)
     #     logger.critical(sys.exc_info())
@@ -355,6 +356,8 @@ class MyDiscordClient(discord.Client):
         # We can't initialize this at the main level because we're not connected yet
         global sandbox_channel
         sandbox_channel = discord_client.get_channel(int(sandbox_channel_id))
+        global botspam_channel
+        botspam_channel = discord_client.get_channel(int(botspam_channel_id))
         global welcome_channel
         welcome_channel = discord_client.get_channel(int(welcome_channel_id))
         global guild
@@ -397,7 +400,12 @@ class MyDiscordClient(discord.Client):
             >
         >
         '''
-        logger.info(f"{payload.member.nick} added {payload.emoji.name} to {payload.message_id}")
+        # logger.debug(payload)
+        channel = discord_client.get_channel(int(payload.channel_id))
+        message = await channel.fetch_message(payload.message_id)
+        output = f"{payload.member.name}#{payload.member.discriminator} added {payload.emoji.name} to {message.author} in {channel.name}"
+        logger.info(output)
+        await sandbox_channel.send(output)
 
     async def on_raw_reaction_remove(self, payload):
         '''
@@ -414,7 +422,14 @@ class MyDiscordClient(discord.Client):
             member=None
         >
         '''
-        logger.info(f"{payload.user_id} removed {payload.emoji.name} from {payload.message_id}")
+        # logger.debug(payload)
+        channel = discord_client.get_channel(int(payload.channel_id))
+        message = await channel.fetch_message(payload.message_id)
+        member = await guild.fetch_member(payload.user_id)
+        # logger.debug(member)
+        output = f"{member.name}#{member.discriminator} removed {payload.emoji.name} from {message.author} in {channel.name}"
+        logger.info(output)
+        await sandbox_channel.send(output)
 
     async def on_raw_message_delete(self, payload):
         '''
@@ -448,7 +463,9 @@ class MyDiscordClient(discord.Client):
             flags=<MessageFlags value=0>
         >
         '''
-        logger.info(f"{payload.author.name} deleted: {payload.id}")
+        output = f"{payload.cached_message.author.name}#{payload.cached_message.author.discriminator} deleted a message in {payload.cached_message.channel.name}"
+        logger.info(output)
+        # await sandbox_channel.send(output)
 
     async def on_raw_message_edit(self, payload):
         '''
@@ -535,7 +552,9 @@ class MyDiscordClient(discord.Client):
             >
         >
         '''
-        logger.info(f"Messages edited: {payload}")
+        output = f"{payload.cached_message.author.name}#{payload.cached_message.author.discriminator} edited a message in {payload.cached_message.channel.name}"
+        logger.info(output)
+        # await sandbox_channel.send(output)
 
     async def on_message(self, message):
         '''
@@ -577,7 +596,7 @@ class MyDiscordClient(discord.Client):
             return
 
         logger.debug(f"[discord] Messsage from <{message.author.name}> in #{message.channel.name}: {content}")
-        logger.debug(message)
+        # logger.debug(message)
 
         can_mute = message.author.guild_permissions.manage_roles
         can_kick = message.author.guild_permissions.kick_members
@@ -585,16 +604,16 @@ class MyDiscordClient(discord.Client):
         is_admin = message.author.guild_permissions.administrator
         author_roles = message.author.roles
         role_vip = False
-        role_helper = False
-        role_needshelp = False
+        # role_helper = False
+        # role_needshelp = False
 
         for role_obj in author_roles:
             if role_obj.name == "VIP":
                 role_vip = True
-            if role_obj.name == "Helper":
-                role_helper = True
-            if role_obj.name == "NeedsHelp":
-                role_needshelp = True
+            # if role_obj.name == "Helper":
+            #     role_helper = True
+            # if role_obj.name == "NeedsHelp":
+            #     role_needshelp = True
 
         if message.content.startswith(f'{prefix}topic'):
             await message.channel.send(random.choice(question_list))
@@ -720,10 +739,11 @@ class MyDiscordClient(discord.Client):
             return member_object
 
 
-# @slash.slash(name="test")
-# async def test(ctx: SlashContext):
-#     embed = discord.Embed(title="Embed Test")
-#     await ctx.send(embed=embed)
+'''
+    # @slash.slash(name="test")
+    # async def test(ctx: SlashContext):
+    #     embed = discord.Embed(title="Embed Test")
+    #     await ctx.send(embed=embed)
 
     # async def on_raw_bulk_message_delete(self, payload):
     #     # Never seen this
@@ -768,7 +788,7 @@ class MyDiscordClient(discord.Client):
 
     # async def on_message_edit(self, before, after):
     #     logger.info(f"Messages edited: {before} to {after}")
-
+'''
 
 question_list = ["What did you eat for breakfast?",
                  "How many cups of coffee, tea, or beverage-of-choice do you have each morning?",
