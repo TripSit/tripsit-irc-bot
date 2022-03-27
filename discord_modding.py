@@ -4,7 +4,7 @@
 import discord
 # This allows us to define the bot's commands
 from discord.ext import commands
-# Fr slash commands
+# For slash commands
 # from discord_slash import SlashCommand, SlashContext
 
 # These are used to pull in the discord settings from the default.cfg file
@@ -21,52 +21,56 @@ import threading
 import logging
 # For random questions
 import random
+# For the database
+import tempfile
+import json
+import os
+from sopel.tools import Identifier
+from sopel.db import (
+    ChannelValues,
+    NickIDs,
+    Nicknames,
+    NickValues,
+    PluginValues,
+    SopelDB,
+)
 # This is a fix for an asyncio issue on windows
 import platform
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-
-# # This is an example command of how to run something
-# @plugin.command('dev')
-# def irc_dev(sopel_bot, trigger):
-#     asyncio.run_coroutine_threadsafe(discord_dev(), loop)
-# async def discord_dev():
-#     await sandbox_channel.send("test!")
-
 # Discord Setup Information
 DISCORD_API_VERSION = 6
 DISCORD_API_URL = f'https://discord.com/api/v{DISCORD_API_VERSION}'
 description = '''Moonbear's first discord module =3'''
-# intents = discord.Intents(
-#     messages=True,
-#     members=True,
-#     presences=True,
-#     reactions=True,
-#     emojis=True,
-#     bans=True,
-#     voice_states=True
-# )
+# Define discord permissions
+intents = discord.Intents(
+    messages=True,
+    members=True,
+    presences=True,
+    reactions=True,
+    emojis=True,
+    bans=True,
+    voice_states=True
+)
 
 # To cache members and messages
-# member_cache = discord.MemberCacheFlags(
-#     online=True,  # Whether to cache members with a status. Members that go offline are no longer cached.
-#     voice=True,   # Whether to cache members that are in voice. Members that leave voice are no longer cached.
-#     joined=True   # Whether to cache members that joined the guild or are chunked as part of the initial log in flow. Members that leave the guild are no longer cached.
-# )
+member_cache = discord.MemberCacheFlags(
+    online=True,  # Whether to cache members with a status. Members that go offline are no longer cached.
+    voice=True,   # Whether to cache members that are in voice. Members that leave voice are no longer cached.
+    joined=True   # Whether to cache members that joined the guild or are chunked as part of the initial log in flow. Members that leave the guild are no longer cached.
+)
 prefix = "."
 
-# This is where we define the bot on discord
-# intents = discord.Intents.all()
-# member_cache = discord.MemberCacheFlags.all()
-
+# Set up the bot
 discord_bot = commands.Bot(
     command_prefix=prefix,
     description=description,
-    intents=discord.Intents.all(),
-    member_cache_flags=discord.MemberCacheFlags.all()
+    intents=intents,
+    member_cache_flags=member_cache
 )
 
+# I cant get slash commands to work yet
 # slash = SlashCommand(discord_bot)
 
 # Handles log statements
@@ -76,9 +80,168 @@ logger.setLevel(logging.DEBUG)
 # Initialize this so we can inject processes into the running loop
 loop = asyncio.get_event_loop()
 
+# Setup the database
+db_filename = tempfile.mkstemp()[1]
+
+TMP_CONFIG = """
+[core]
+owner = Embolalia
+db_filename = {db_filename}
+"""
+
+
+def db(configfactory):
+    content = TMP_CONFIG.format(db_filename=db_filename)
+    settings = configfactory('default.cfg', content)
+    db = SopelDB(settings)
+    # TODO add tests to ensure db creation works properly, too.
+    return db
+
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('mute')
+@sopel_plugin.command('dbgetnickid', 'getnickid', 'nickid')
+@sopel_plugin.example('.dbgetnickid nick')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_get_nick_id(sopel_bot, trigger):
+    nick = trigger.group(3)
+    try:
+        # Attempt to get nick ID: it is not created by default
+        nick_id = sopel_bot.db.get_nick_id(nick)
+    except ValueError:
+        # Create the nick ID
+        nick_id = sopel_bot.db.get_nick_id(nick, create=True)
+    finally:
+        output = f"Got {nick}'s NickId attribute as {nick_id}"
+        logger.debug(output)
+        sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('dbset')
+@sopel_plugin.example('.dbset nick key value')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_set(sopel_bot, trigger):
+    nick = trigger.group(3)
+    key = trigger.group(4)
+    value = trigger.group(5)
+    sopel_bot.db.set_nick_value(nick, key, value)
+    output = f"Set {nick}'s {key} attribute to {value}"
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('dbget')
+@sopel_plugin.example('.dbget nick key')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_get(sopel_bot, trigger):
+    nick = trigger.group(3)
+    key = trigger.group(4)
+    try:
+        found_value = json.loads(sopel_bot.db.get_nick_value(nick, key))
+        output = f"Got {nick}'s {key} attribute as {found_value}"
+        # print(f'Found {key}: {found_value[key]}')
+    except TypeError:
+        output = f"Did not find {nick}'s {key}"
+
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('dbaliasnick', 'setalias')
+@sopel_plugin.example('.dbaliasnick nick alias')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_alias_nick(sopel_bot, trigger):
+    nick = trigger.group(3)
+    alias = trigger.group(4)
+    nick_id = sopel_bot.db.get_nick_id(nick, create=True)
+    try:
+        sopel_bot.db.alias_nick(nick, alias)
+    except ValueError:
+        output = f"Set {nick}'s already has an alias of {alias}!"
+        logger.debug(output)
+        sopel_bot.reply(output)
+        return
+    assert nick_id == sopel_bot.db.get_nick_id(alias)
+    output = f"Set {nick}'s alias as as {alias}"
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command(
+    'dbunaliasnick',
+    'removealias',
+    'forgetalias',
+    'deletealias',
+    'remalias',
+    'delalias',
+    'rmalias')
+@sopel_plugin.example('.dbunaliasnick alias')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_unalias_nick(sopel_bot, trigger):
+    alias = trigger.group(3)
+    try:
+        sopel_bot.db.unalias_nick(alias)
+    except ValueError:
+        output = f"{alias} doesnt exist as an alias!"
+        logger.debug(output)
+        sopel_bot.reply(output)
+        return
+    output = f"Removed {alias} an alias!"
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command(
+    'dbforgetnickgroup',
+    'forgetnickgroup',
+    'removenickgroup',
+    'deletenickgroup',
+    'remnickgroup',
+    'delnickgroup',
+    'rmnickgroup')
+@sopel_plugin.example('.dbforgetnickgroup nick')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_forget_nick_group(sopel_bot, trigger):
+    nick = trigger.group(3)
+    try:
+        sopel_bot.db.forget_nick_group(nick)
+    except ValueError:
+        output = f"{nick} doesnt exist as a nick group!"
+        logger.debug(output)
+        sopel_bot.reply(output)
+        return
+    output = f"Removed {nick} from the db!"
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('dbmergenickgroup', 'mergenickgroup', 'mergenicks')
+@sopel_plugin.example('.dbmergenickgroup nick alias')
+@sopel_plugin.output_prefix('[DB] ')
+def irc_db_merge_nick_group(sopel_bot, trigger):
+    nick = trigger.group(3)
+    alias = trigger.group(4)
+    try:
+        sopel_bot.db.merge_nick_groups(nick, alias)
+    except ValueError:
+        output = f"{nick} doesnt exist as a nick group, or something!"
+        logger.debug(output)
+        sopel_bot.reply(output)
+        return
+    output = f"Merged {nick} and {alias}!"
+    logger.debug(output)
+    sopel_bot.reply(output)
+
+
+@sopel_plugin.require_admin
+@sopel_plugin.command('dmute', 'discordmute')
+@sopel_plugin.example('.dmute nick')
+@sopel_plugin.output_prefix('[DB] ')
 def irc_mute(sopel_bot, trigger):
     # This is the mute functionality on the IRC side
     user_name = trigger.group(3)
@@ -98,7 +261,7 @@ async def discord_mute(sopel_bot, user_name, reason):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('unmute')
+@sopel_plugin.command('dunmute', 'discordunmute')
 def irc_unmute(sopel_bot, trigger):
     user_name = trigger.group(3)
     asyncio.run_coroutine_threadsafe(discord_unmute(sopel_bot, user_name), loop)
@@ -113,7 +276,7 @@ async def discord_unmute(sopel_bot, user_name):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('kick')
+@sopel_plugin.command('dkick', 'discordkick')
 def irc_Kick(sopel_bot, trigger):
     user_name = trigger.group(3)
     reason = "I was lazy and didnt give a reason"
@@ -136,7 +299,7 @@ async def discord_kick(sopel_bot, user_name, reason):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('ban')
+@sopel_plugin.command('dban', 'discordban')
 def irc_ban(sopel_bot, trigger):
     user_name = trigger.group(3)
     reason = "I was lazy and didnt give a reason"
@@ -159,7 +322,7 @@ async def discord_ban(sopel_bot, user_name, reason):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('rename')
+@sopel_plugin.command('drename', 'discordrename', 'dsvsnick', 'discordsvsnick')
 def irc_rename(sopel_bot, trigger):
     user_name = trigger.group(3)
     new_name = trigger.group(4)
@@ -180,7 +343,7 @@ async def discord_rename(sopel_bot, user_name, new_name):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('add_role')
+@sopel_plugin.command('dadd_role', 'dset_role', 'dsetrole', 'daddroll')
 def irc_add_roles(sopel_bot, trigger):
     user_name = trigger.group(3)
     role_name = trigger.group(4)
@@ -212,7 +375,7 @@ async def discord_add_roles(sopel_bot, user_name, role_name, role_id, reason):
 
 
 @sopel_plugin.require_admin
-@sopel_plugin.command('remove_role')
+@sopel_plugin.command('dremove_role', 'dremoverole', 'dremrole')
 def irc_remove_roles(sopel_bot, trigger):
     user_name = trigger.group(3)
     role_name = trigger.group(4)
@@ -267,6 +430,7 @@ class GuildSection(StaticSection):
 
 def setup(bot):
     # This defines the section of the sopel_plugin used for the sopel bot
+    global sopel_bot
     sopel_bot = bot
     sopel_bot.config.define_section('discord', GuildSection)
     global sandbox_channel_id
@@ -335,11 +499,6 @@ class MyDiscordClient(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    # TODO better error logging
-    # async def on_error(self, event, *args, **kwargs):
-    #     logger.critical(event)
-    #     logger.critical(sys.exc_info())
-
     async def on_connect(self):
         logger.info("[discord] Connected")
 
@@ -403,9 +562,57 @@ class MyDiscordClient(discord.Client):
         # logger.debug(payload)
         channel = discord_client.get_channel(int(payload.channel_id))
         message = await channel.fetch_message(payload.message_id)
-        output = f"{payload.member.name}#{payload.member.discriminator} added {payload.emoji.name} to {message.author} in {channel.name}"
+        emoji_name = payload.emoji.name
+        giver_nick = f"{payload.member.name}#{payload.member.discriminator}"
+        taker_nick = f"{message.author.name}#{message.author.discriminator}"
+        outputA = f"{giver_nick} added {emoji_name} to {taker_nick} in {channel.name}"
+        logger.info(outputA)
+        await sandbox_channel.send(outputA)
+        if giver_nick == taker_nick:
+            output = "Users cannot give themselves awards so ignoring this!"
+            logger.info(output)
+            await sandbox_channel.send(output)
+            return
+
+        taker_count = 1
+        taker_emojis = sopel_bot.db.get_nick_value(taker_nick, "emoji-taken")
+        if taker_emojis:
+            logger.debug(f"{taker_nick}'s emojis: {taker_emojis}")
+            for key in taker_emojis:
+                # logger.debug(f"{key}: {taker_emojis[key]}")
+                if key == emoji_name:
+                    taker_count = taker_emojis[key] + 1
+                    taker_emojis[emoji_name] = taker_count
+            if taker_count == 1:
+                taker_emojis[emoji_name] = taker_count
+        else:
+            logger.debug("Creating new emoji group!")
+            taker_emojis = json.loads('{"' + emoji_name + '":' + str(taker_count) + '}')
+        output = f"{taker_nick} has received {emoji_name} from {taker_count} people!"
         logger.info(output)
         await sandbox_channel.send(output)
+        logger.debug(f"Setting {taker_nick}'s 'emoji-taken' to {taker_emojis}")
+        sopel_bot.db.set_nick_value(taker_nick, "emoji-taken", taker_emojis)
+
+        giver_count = 1
+        giver_emojis = sopel_bot.db.get_nick_value(giver_nick, "emoji-given")
+        if giver_emojis:
+            logger.debug(giver_emojis)
+            for key in giver_emojis:
+                # logger.debug(f"{key}: {taker_emojis[key]}")
+                if key == emoji_name:
+                    giver_count = giver_emojis[key] + 1
+                    giver_emojis[emoji_name] = giver_count
+            if giver_count == 1:
+                giver_emojis[emoji_name] = giver_count
+        else:
+            logger.debug("Creating new emoji group!")
+            giver_emojis = json.loads('{"' + emoji_name + '":' + str(giver_count) + '}')
+        output = f"{giver_nick} has given {emoji_name} to {giver_count} people!"
+        logger.info(output)
+        await sandbox_channel.send(output)
+        logger.debug(f"Setting {giver_nick}'s 'emoji-given' to {giver_emojis}")
+        sopel_bot.db.set_nick_value(giver_nick, "emoji-given", giver_emojis)
 
     async def on_raw_reaction_remove(self, payload):
         '''
@@ -425,11 +632,49 @@ class MyDiscordClient(discord.Client):
         # logger.debug(payload)
         channel = discord_client.get_channel(int(payload.channel_id))
         message = await channel.fetch_message(payload.message_id)
+        emoji_name = payload.emoji.name
+        giver_nick = f"{message.author}"
         member = await guild.fetch_member(payload.user_id)
         # logger.debug(member)
-        output = f"{member.name}#{member.discriminator} removed {payload.emoji.name} from {message.author} in {channel.name}"
+        taker_nick = f"{member.name}#{member.discriminator}"
+        output = f"{taker_nick} removed {emoji_name} from {giver_nick} in {channel.name}"
         logger.info(output)
         await sandbox_channel.send(output)
+
+        taker_emojis = sopel_bot.db.get_nick_value(taker_nick, "emoji-given")
+        logger.debug(f"{taker_nick}'s emojis: {taker_emojis}")
+        try:
+            for key in taker_emojis:
+                # logger.debug(f"{key}: {taker_emojis[key]}")
+                if key == emoji_name:
+                    taker_count = taker_emojis[key] - 1
+                    taker_emojis[emoji_name] = taker_count
+        except Exception:
+            logger.debug("Idk what happened so i decided not to do anything about it!")
+        output = f"{taker_nick} has received {emoji_name} from {taker_count} people!"
+        logger.info(output)
+        await sandbox_channel.send(output)
+        logger.debug(f"Setting {taker_nick}'s 'emoji-given' to {taker_emojis}")
+        sopel_bot.db.set_nick_value(taker_nick, "emoji-given", taker_emojis)
+
+        giver_count = 1
+        giver_emojis = sopel_bot.db.get_nick_value(giver_nick, "emoji-taken")
+        logger.debug(giver_emojis)
+        try:
+            for key in giver_emojis:
+                # logger.debug(f"{key}: {taker_emojis[key]}")
+                if key == emoji_name:
+                    giver_count = giver_emojis[key] - 1
+                    giver_emojis[emoji_name] = giver_count
+            if giver_count == 1:
+                giver_emojis[emoji_name] = giver_count
+        except Exception:
+            logger.debug("Idk what happened so i decided not to do anything about it!")
+        output = f"{giver_nick} has given {emoji_name} to {giver_count} people!"
+        logger.info(output)
+        await sandbox_channel.send(output)
+        logger.debug(f"Setting {giver_nick}'s 'emoji-taken' to {giver_emojis}")
+        sopel_bot.db.set_nick_value(giver_nick, "emoji-taken", giver_emojis)
 
     async def on_raw_message_delete(self, payload):
         '''
@@ -464,8 +709,8 @@ class MyDiscordClient(discord.Client):
         >
         '''
         output = f"{payload.cached_message.author.name}#{payload.cached_message.author.discriminator} deleted a message in {payload.cached_message.channel.name}"
-        logger.info(output)
         # await sandbox_channel.send(output)
+        logger.info(output)
 
     async def on_raw_message_edit(self, payload):
         '''
@@ -553,8 +798,8 @@ class MyDiscordClient(discord.Client):
         >
         '''
         output = f"{payload.cached_message.author.name}#{payload.cached_message.author.discriminator} edited a message in {payload.cached_message.channel.name}"
-        logger.info(output)
         # await sandbox_channel.send(output)
+        logger.info(output)
 
     async def on_message(self, message):
         '''
@@ -619,6 +864,21 @@ class MyDiscordClient(discord.Client):
             await message.channel.send(random.choice(question_list))
 
         if role_vip:
+            if message.content.startswith(f'{prefix}awards'):
+                try:
+                    user_name = content.split(" ")[1]
+                except Exception:
+                    await message.channel.send(f'You need to supply username! EG: {prefix}awards username')
+
+                member = await MyDiscordClient.lookup_discord_member(self, user_name)
+                member_username = f"{member.name}#{member.discriminator}"
+                logger.debug(f"Looking for awards {member_username} has {type}")
+                taken_emojis = sopel_bot.db.get_nick_value(member_username, "emoji-taken")
+                given_emojis = sopel_bot.db.get_nick_value(member_username, "emoji-given")
+                output = f"{member_username} has recieved: {taken_emojis}\n{member_username} has given: {given_emojis}"
+                logger.debug(output)
+                await message.channel.send(output)
+
             if message.content.startswith(f'{prefix}letshelp'):
                 needshelp_role = guild.get_role(955853983287754782)
                 try:
@@ -740,6 +1000,11 @@ class MyDiscordClient(discord.Client):
 
 
 '''
+    # TODO better error logging
+    # async def on_error(self, event, *args, **kwargs):
+    #     logger.critical(event)
+    #     logger.critical(sys.exc_info())
+
     # @slash.slash(name="test")
     # async def test(ctx: SlashContext):
     #     embed = discord.Embed(title="Embed Test")

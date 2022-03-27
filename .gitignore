@@ -348,3 +348,10 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# Ignore all python files
+*.py
+
+# Except our modules
+!enforce.py
+!discord_modding.py
