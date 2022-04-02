@@ -43,30 +43,12 @@ def resolve_command(bot, arg):
                 return 'description', ''.join(anything)
 
     def cmdv(args):
-        # directives = {k: v for k, v in map(resolve_variant, args)}
         directives = list(map(resolve_variant, args))
 
         for k, v in directives:
             bot.say(f'{k}: {v}')
 
         return directives
-        # ret = ''
-
-        # time = [resolve_time(t) for t in reason if resolve_time(t)]
-        # reason = [r for r in reason if not resolve_time(r)]
-        # ret += f'a duration of {time[0]}' if len(time) > 0 else 'indefinitely'
-        # if len(reason) == 0:
-        #     return ret
-
-        # variant = [resolve_variant(v) for v in reason if resolve_variant(v)]
-        # reason = [r for r in reason if not resolve_variant(r)]
-        # ret += f' for {" ".join(reason)}' if len(reason) > 0 else ''
-
-        # ret += f' :: {variant[0]}' if len(variant) > 0 else ''
-
-        # return ret
-
-        pass
 
     match arg.split():
         case [('.mute' | '.cban' | '.nban') as fate, *values]:
